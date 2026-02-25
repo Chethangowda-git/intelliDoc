@@ -11,7 +11,7 @@ import { useAuth } from "./store/auth.store";
 import { useEffect } from "react";
 
 function App() {
-  const { clearAuth, setAuth, user, accessToken } = useAuth();
+  const { clearAuth, setAuth, user } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -29,8 +29,8 @@ function App() {
   }, [clearAuth, navigate, setAuth, user]);
 
   return (
-    <div className="min-h-screen">
-      {accessToken ? <Navbar /> : null}
+    <>
+      <Navbar />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
@@ -52,7 +52,7 @@ function App() {
         />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
-    </div>
+    </>
   );
 }
 

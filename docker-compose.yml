@@ -1,6 +1,10 @@
+version: "3.9"
+
 services:
   mongodb:
     image: mongo:7
+    container_name: intellidoc-mongodb
+    restart: unless-stopped
     ports:
       - "27017:27017"
     volumes:
@@ -8,11 +12,15 @@ services:
 
   redis:
     image: redis:7-alpine
+    container_name: intellidoc-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
 
   chromadb:
     image: chromadb/chroma:latest
+    container_name: intellidoc-chromadb
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
