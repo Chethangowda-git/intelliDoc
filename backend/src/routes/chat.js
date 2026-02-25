@@ -142,9 +142,16 @@ Answer:`;
       reply.raw.end();
 
     } catch (err) {
-      console.error('Chat error:', err.message);
-      send('error', { message: 'Something went wrong. Please try again.' });
-      reply.raw.end();
-    }
+  console.error('Chat error:', err.message);
+
+  let userMessage = 'Something went wrong. Please try again.';
+
+  if (err.message?.includes('429') || err.message?.includes('quota') || err.message?.includes('Too Many Requests')) {
+    userMessage = '⏳ API rate limit reached. Please wait a minute and try again.';
+  }
+
+  send('error', { message: userMessage });
+  reply.raw.end();
+}
   });
 }
