@@ -6,7 +6,7 @@ export const DocumentList = () => {
   const { data, isLoading } = useQuery({
     queryKey: ["documents"],
     queryFn: listDocumentsApi,
-    refetchInterval: 5000
+    refetchInterval: 5001
   });
 
   if (isLoading) return <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 bg-slate-100 animate-pulse rounded" />)}</div>;

@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 
-dotenv.config();
+dotenv.config({ path: "../.env" });
 
 const required = ["MONGODB_URI", "REDIS_URL", "JWT_SECRET", "JWT_REFRESH_SECRET"] as const;
 for (const key of required) {
@@ -8,7 +8,7 @@ for (const key of required) {
 }
 
 export const env = {
-  PORT: Number(process.env.PORT || 5000),
+  PORT: Number(process.env.PORT || 5001),
   NODE_ENV: process.env.NODE_ENV || "development",
   MONGODB_URI: process.env.MONGODB_URI as string,
   REDIS_URL: process.env.REDIS_URL as string,
