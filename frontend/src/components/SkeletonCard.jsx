@@ -1,6 +1,6 @@
 
 // SkeletonCard.jsx — paste this in a separate file
-export function SkeletonCard() {
+export default function SkeletonCard() {
   return (
     <div style={sk.card}>
       <div style={{ ...sk.shimmer, width: 32, height: 32, borderRadius: 8, flexShrink: 0 }} />

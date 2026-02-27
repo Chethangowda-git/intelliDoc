@@ -1,6 +1,6 @@
 
 // EmptyState.jsx — paste this in a separate file
-export function EmptyState() {
+export default function EmptyState() {
   return (
     <div style={es.wrap}>
       <div style={es.icon}>
