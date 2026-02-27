@@ -2,23 +2,20 @@ import { ChromaClient } from 'chromadb';
 
 export const chroma = new ChromaClient({ path: process.env.CHROMA_URL });
 
-// Noop embedding function — we always provide embeddings ourselves
-const noopEmbeddingFunction = {
-  generate: async (texts) => texts.map(() => new Array(3072).fill(0)),
-};
+function noopFn(dims) {
+  return { generate: async (texts) => texts.map(() => new Array(dims).fill(0)) };
+}
 
-export async function getOrCreateCollection(documentId) {
+export async function getOrCreateCollection(name, dims = 384) {
   return await chroma.getOrCreateCollection({
-    name: `doc_${documentId}`,
+    name,
     metadata: { 'hnsw:space': 'cosine' },
-    embeddingFunction: noopEmbeddingFunction,
+    embeddingFunction: noopFn(dims),
   });
 }
 
-export async function deleteCollection(documentId) {
+export async function deleteCollection(name) {
   try {
-    await chroma.deleteCollection({ name: `doc_${documentId}` });
-  } catch (err) {
-    // Safe to ignore — collection may not exist yet
-  }
+    await chroma.deleteCollection({ name });
+  } catch {}
 }

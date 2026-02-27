@@ -93,7 +93,10 @@ export async function documentRoutes(fastify) {
     // Delete file from disk
     const filePath = path.join(UPLOAD_DIR, doc.filename);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    await deleteCollection(doc._id.toString());
+    // await deleteCollection(doc._id.toString());
+    // Replace the single deleteCollection call with:
+await deleteCollection(`doc_${doc._id}_huggingface`);
+await deleteCollection(`doc_${doc._id}_gemini`);
 
     return reply.send({ message: 'Document deleted' });
   });

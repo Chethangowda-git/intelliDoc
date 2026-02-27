@@ -1,12 +1,12 @@
 import { authenticate } from '../middleware/auth.js';
 import { Document } from '../models/Document.js';
 import { Conversation } from '../models/Conversation.js';
-import { embedText, chatModel } from '../config/gemini.js';
+import { embedText as hfEmbed, generateAnswer } from '../config/huggingface.js';
+import { embedText as geminiEmbed, chatModel } from '../config/gemini.js';
 import { getOrCreateCollection } from '../config/chroma.js';
 
 export async function chatRoutes(fastify) {
 
-  // Get or create conversation for a document
   fastify.get('/api/chat/:documentId', {
     preHandler: [authenticate],
   }, async (request, reply) => {
@@ -33,11 +33,10 @@ export async function chatRoutes(fastify) {
     return reply.send({ conversation });
   });
 
-  // Ask a question — streams SSE response
   fastify.post('/api/chat/:documentId/ask', {
     preHandler: [authenticate],
   }, async (request, reply) => {
-    const { question } = request.body;
+    const { question, provider = 'huggingface' } = request.body;
 
     if (!question?.trim())
       return reply.status(400).send({ error: 'Question is required' });
@@ -50,7 +49,7 @@ export async function chatRoutes(fastify) {
     if (doc.status !== 'ready')
       return reply.status(400).send({ error: 'Document is still processing' });
 
-    // Set up SSE
+    // SSE setup
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -63,12 +62,23 @@ export async function chatRoutes(fastify) {
     };
 
     try {
-      // Step 1 — Embed the question
-      send('status', { message: 'Searching document...' });
-      const questionEmbedding = await embedText(question);
+      const isGemini = provider === 'gemini';
+      console.log(`🤖 Using provider: ${provider}`);
 
-      // Step 2 — Query ChromaDB for top chunks
-      const collection = await getOrCreateCollection(doc._id.toString());
+      // Step 1 — Embed question with the correct provider
+      send('status', { message: `Searching document via ${isGemini ? 'Gemini' : 'HuggingFace'}...` });
+
+      const questionEmbedding = isGemini
+        ? await geminiEmbed(question)
+        : await hfEmbed(question);
+
+      console.log('✅ Question embedded, dims:', questionEmbedding.length);
+
+      // Step 2 — Query ChromaDB
+      // Note: collection name includes provider so embeddings don't mix
+      const collectionName = `doc_${doc._id}_${provider}`;
+      const collection = await getOrCreateCollection(collectionName, isGemini ? 3072 : 384);
+
       const results = await collection.query({
         queryEmbeddings: [questionEmbedding],
         nResults: Math.min(5, doc.chunkCount),
@@ -78,21 +88,29 @@ export async function chatRoutes(fastify) {
       const topMetas = results.metadatas[0];
 
       if (!topChunks || topChunks.length === 0) {
-        send('error', { message: 'No relevant content found in document' });
+        send('error', { message: 'No relevant content found. Try re-uploading the document.' });
         reply.raw.end();
         return;
       }
 
-      // Step 3 — Build prompt with context
+      console.log(`✅ Retrieved ${topChunks.length} chunks`);
+
+      // Step 3 — Build prompt
+      send('status', { message: 'Generating answer...' });
+
       const context = topChunks
         .map((chunk, i) => `[Source ${i + 1}]: ${chunk}`)
         .join('\n\n');
 
-      const prompt = `You are a helpful assistant answering questions about a document.
+      // Step 4 — Generate with selected provider
+      let fullAnswer = '';
 
-Use ONLY the context below to answer the question. If the answer is not in the context, say "I couldn't find that in the document."
+      if (isGemini) {
+        const prompt = `You are a helpful assistant answering questions about a document.
 
-At the end of your answer, list which sources you used as: **Sources: [1], [2]** etc.
+Use ONLY the context below to answer the question. Be concise and direct.
+If the answer is not in the context, say "I couldn't find that in the document."
+At the end, list which sources you used as: Sources: [1], [2] etc.
 
 Context:
 ${context}
@@ -101,24 +119,41 @@ Question: ${question}
 
 Answer:`;
 
-      // Step 4 — Stream response from Gemini
-      send('status', { message: 'Generating answer...' });
+        const streamResult = await chatModel.generateContentStream(prompt);
+        for await (const chunk of streamResult.stream) {
+          const text = chunk.text();
+          if (text) {
+            fullAnswer += text;
+            send('token', { text });
+          }
+        }
+      } else {
+        const prompt = `<s>[INST] You are a helpful assistant answering questions about a document.
 
-      const streamResult = await chatModel.generateContentStream(prompt);
-      let fullResponse = '';
+Use ONLY the context below to answer the question. Be concise and direct.
+If the answer is not in the context, say "I couldn't find that in the document."
+At the end, list which sources you used as: Sources: [1], [2] etc.
 
-      for await (const chunk of streamResult.stream) {
-        const text = chunk.text();
-        if (text) {
-          fullResponse += text;
+Context:
+${context}
+
+Question: ${question} [/INST]`;
+
+        fullAnswer = await generateAnswer(prompt);
+
+        // Simulate streaming word by word
+        const words = fullAnswer.split(' ');
+        for (let i = 0; i < words.length; i++) {
+          const text = i === words.length - 1 ? words[i] : words[i] + ' ';
           send('token', { text });
+          await new Promise(r => setTimeout(r, 20));
         }
       }
 
-      // Step 5 — Save to conversation history
+      // Step 5 — Save conversation
       const sources = topChunks.map((text, i) => ({
         chunkIndex: topMetas[i]?.chunkIndex ?? i,
-        text: text.slice(0, 200), // preview
+        text: text.slice(0, 200),
       }));
 
       let conversation = await Conversation.findOne({
@@ -135,23 +170,29 @@ Answer:`;
       }
 
       conversation.messages.push({ role: 'user', content: question });
-      conversation.messages.push({ role: 'assistant', content: fullResponse, sources });
+      conversation.messages.push({
+        role: 'assistant',
+        content: fullAnswer,
+        sources,
+        provider, // save which model was used
+      });
       await conversation.save();
 
-      send('done', { sources });
+      send('done', { sources, provider });
       reply.raw.end();
 
     } catch (err) {
-  console.error('Chat error:', err.message);
+      console.error('Chat error:', err.message);
 
-  let userMessage = 'Something went wrong. Please try again.';
+      let userMessage = 'Something went wrong. Please try again.';
+      if (err.message?.includes('429') || err.message?.includes('quota') || err.message?.includes('Too Many Requests')) {
+        userMessage = '⏳ Rate limit reached. Please wait a minute and try again.';
+      } else if (err.message?.includes('503') || err.message?.includes('loading')) {
+        userMessage = '⏳ Model is loading, please retry in 20 seconds.';
+      }
 
-  if (err.message?.includes('429') || err.message?.includes('quota') || err.message?.includes('Too Many Requests')) {
-    userMessage = '⏳ API rate limit reached. Please wait a minute and try again.';
-  }
-
-  send('error', { message: userMessage });
-  reply.raw.end();
-}
+      send('error', { message: userMessage });
+      reply.raw.end();
+    }
   });
 }
