@@ -264,9 +264,3 @@ Embedding vectors from different models are not comparable. `all-MiniLM-L6-v2` p
 - Streaming for HuggingFace (currently simulated word-by-word)
 - Ollama support for fully offline local inference
 - Pinecone integration for persistent cloud vector storage
-
----
-
-## License
-
-MIT
